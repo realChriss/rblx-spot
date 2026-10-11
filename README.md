@@ -8,7 +8,7 @@
 
 ## ✨ Features
 
-- 🌍 Shows the server's IP address and region in the bottom-right corner of the game
+- 🌍 Shows the server's IP address, region and distance from you in the bottom-right corner of the game
 - 👻 Click-through overlay that only appears while Roblox is the focused window
 - 🪶 Small and quiet, lives in the system tray
 

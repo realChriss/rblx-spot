@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Cuts a release: picks the next version, sets it in Cargo.toml, tags main and pushes.
-# Pushing the tag is the only thing that builds and publishes (.github/workflows/ci.yml).
+# pushing the tag is what builds and publishes the release (.github/workflows/ci.yml)
 set -euo pipefail
 cd "$(dirname "$0")"
 
