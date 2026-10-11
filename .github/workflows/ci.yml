@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: rustup update stable --no-self-update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
       - run: cargo clippy --release -- -D warnings
       - run: cargo test --release
 
@@ -23,6 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: rustup update stable --no-self-update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
       - run: cargo build --release
       - shell: bash
         run: |
