@@ -2,21 +2,16 @@
 // Inputs are only the log files and window queries (FindWindow/GetClientRect).
 #![windows_subsystem = "windows"]
 
+mod geo;
+mod log;
 mod sound;
 mod splash;
 
-use std::collections::HashMap;
-use std::fs;
-use std::io::{Read, Seek, SeekFrom};
 use std::mem::{size_of, zeroed};
-use std::path::PathBuf;
 use std::ptr::{null, null_mut};
-use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem};
 use tray_icon::{Icon, TrayIconBuilder};
-use ureq::tls::{TlsConfig, TlsProvider};
 use windows_sys::w;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -26,123 +21,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const BOX_ALPHA: u32 = 178;
 const TICK_MS: u32 = 250;
-const UNKNOWN: &str = "region unknown";
-
-type Located = (String, Option<u32>);
-
-static GEO: LazyLock<Mutex<HashMap<String, Located>>> = LazyLock::new(Default::default);
-static HOME: Mutex<Option<(f64, f64)>> = Mutex::new(None);
-
-// Roblox logs a teleport's old-server disconnect after the new address; serverId is always last.
-fn last_event(chunk: &str) -> Option<Option<(String, String)>> {
-    let joined = chunk.rfind("serverId: ");
-    let left = chunk.rfind("Time to disconnect replication data");
-    if left > joined {
-        return Some(None);
-    }
-    let (ip, rest) = chunk[joined? + 10..].split_once('|')?;
-    let port: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    let valid = !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.') && !port.is_empty();
-    valid.then(|| Some((ip.to_owned(), port)))
-}
-
-#[derive(Default)]
-struct Log {
-    path: Option<PathBuf>,
-    pos: u64,
-    server: Option<(String, String)>,
-}
-
-impl Log {
-    fn open_newest(&mut self) {
-        let newest = (|| {
-            let dir = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join(r"Roblox\logs");
-            let logs = fs::read_dir(dir).ok()?.flatten().filter(|e| {
-                let n = e.file_name().to_string_lossy().into_owned();
-                n.contains("_Player_") && n.ends_with("_last.log") && !n.contains("CrashHandler")
-            });
-            Some(logs.max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?.path())
-        })();
-        *self = Log { path: newest, ..Default::default() };
-    }
-
-    fn read_new(&mut self) -> std::io::Result<()> {
-        let Some(path) = &self.path else { return Ok(()) };
-        let mut f = fs::File::open(path)?;
-        f.seek(SeekFrom::Start(self.pos))?;
-        let mut chunk = Vec::new();
-        f.read_to_end(&mut chunk)?;
-        let end = chunk.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-        self.pos += end as u64;
-        if let Some(event) = last_event(&String::from_utf8_lossy(&chunk[..end])) {
-            if let Some((ip, _)) = &event {
-                lookup(ip);
-            }
-            self.server = event;
-        }
-        Ok(())
-    }
-}
-
-fn lookup(ip: &str) {
-    let mut geo = GEO.lock().unwrap();
-    if geo.get(ip).is_some_and(|(region, _)| region != UNKNOWN) {
-        return;
-    }
-    geo.insert(ip.to_owned(), ("locating…".into(), None));
-    let ip = ip.to_owned();
-    std::thread::spawn(move || {
-        let located = locate(&ip);
-        GEO.lock().unwrap().insert(ip, located);
-    });
-}
-
-fn locate(ip: &str) -> Located {
-    let info = ipinfo(&format!("{ip}/json"));
-    let parts: Vec<&str> = ["city", "region", "country"]
-        .iter()
-        .filter_map(|k| info[k].as_str())
-        .filter(|s| !s.is_empty())
-        .collect();
-    let region = if parts.is_empty() { UNKNOWN.into() } else { parts.join(", ") };
-    let km = coords(&info).zip(home()).map(|(a, b)| ((distance_km(a, b) / 10.0).round() * 10.0) as u32);
-    (region, km)
-}
-
-fn home() -> Option<(f64, f64)> {
-    let mut home = HOME.lock().unwrap();
-    if home.is_none() {
-        *home = coords(&ipinfo("json"));
-    }
-    *home
-}
-
-fn coords(info: &serde_json::Value) -> Option<(f64, f64)> {
-    let (lat, lon) = info["loc"].as_str()?.split_once(',')?;
-    Some((lat.parse().ok()?, lon.parse().ok()?))
-}
-
-fn distance_km((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
-    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
-    let a = ((p2 - p1) / 2.0).sin().powi(2) + p1.cos() * p2.cos() * ((lon2 - lon1).to_radians() / 2.0).sin().powi(2);
-    12742.0 * a.sqrt().asin()
-}
-
-fn ipinfo(path: &str) -> serde_json::Value {
-    ureq::get(format!("https://ipinfo.io/{path}"))
-        .config()
-        .timeout_global(Some(Duration::from_secs(5)))
-        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).build()) // without this ureq panics: rustls feature is off
-        .build()
-        .call()
-        .and_then(|mut r| r.body_mut().read_json())
-        .unwrap_or_default()
-}
 
 struct App {
     overlay: HWND,
     roblox: HWND,
-    log: Log,
+    log: log::Log,
     shown: Option<(String, i32, i32, u32)>,
 }
 
@@ -161,7 +44,7 @@ impl App {
             self.log.path = None;
         }
         let Some((ip, port)) = &self.log.server else { return self.hide() };
-        let (region, km) = GEO.lock().unwrap().get(ip).cloned().unwrap_or_default();
+        let (region, km) = geo::get(ip);
         let mut text = format!("Server    {ip}:{port}\nRegion    {region}");
         // IP geolocation is city-level, so closer than that is noise
         match km {
@@ -271,7 +154,7 @@ fn main() {
         let overlay = CreateWindowExW(ex, w!("STATIC"), null(), WS_POPUP, 0, 0, 0, 0, null_mut(), null_mut(), null_mut(), null());
 
         SetTimer(null_mut(), 0, TICK_MS, None);
-        let mut app = App { overlay, roblox: null_mut(), log: Log::default(), shown: None };
+        let mut app = App { overlay, roblox: null_mut(), log: log::Log::default(), shown: None };
         let mut msg = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             if msg.message == WM_TIMER && msg.hwnd.is_null() {
@@ -283,26 +166,3 @@ fn main() {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn log_events() {
-        let s = |ip: &str, port: &str| Some(Some((ip.to_owned(), port.to_owned())));
-        assert_eq!(last_event("nothing here\n"), None);
-        assert_eq!(last_event("x serverId: 128.116.1.2|55123\n"), s("128.116.1.2", "55123"));
-        assert_eq!(last_event("serverId: 1.2.3.4|1\nTime to disconnect replication data\n"), Some(None));
-        assert_eq!(last_event("Time to disconnect replication data\nserverId: 5.6.7.8|9\n"), s("5.6.7.8", "9"));
-        assert_eq!(last_event("serverId: garbage\n"), None);
-    }
-
-    #[test]
-    fn distance() {
-        let berlin_frankfurt = distance_km((52.52, 13.405), (50.11, 8.682));
-        assert!((berlin_frankfurt - 424.0).abs() < 5.0, "{berlin_frankfurt}");
-        assert_eq!(distance_km((10.0, 20.0), (10.0, 20.0)), 0.0);
-        assert_eq!(coords(&serde_json::json!({"loc": "50.1155,8.6842"})), Some((50.1155, 8.6842)));
-        assert_eq!(coords(&serde_json::json!({"bogon": true})), None);
-    }
-}
