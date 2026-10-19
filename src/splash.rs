@@ -34,7 +34,7 @@ fn anim(t: f32) -> (f32, f32) {
 }
 
 // resource 1 = icon.ico, embedded by build.rs
-unsafe fn icon_pixels(n: i32) -> Vec<u32> {
+pub unsafe fn icon_pixels(n: i32) -> Vec<u32> {
     let icon = LoadImageW(GetModuleHandleW(null()), 1 as _, IMAGE_ICON, n, n, LR_DEFAULTCOLOR);
     let mut info: ICONINFO = zeroed();
     GetIconInfo(icon, &mut info);
@@ -87,6 +87,11 @@ unsafe fn run() {
     let dc = CreateCompatibleDC(null_mut());
     let mut bits = null_mut();
     let bmp = CreateDIBSection(dc, &dib_info(w, w), DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+    if bits.is_null() {
+        DestroyWindow(hwnd);
+        DeleteDC(dc);
+        return;
+    }
     let old = SelectObject(dc, bmp);
     let dst = std::slice::from_raw_parts_mut(bits as *mut u32, (w * w) as usize);
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);

@@ -4,14 +4,17 @@
 
 mod geo;
 mod log;
+mod popup;
+mod settings;
 mod sound;
 mod splash;
+mod update;
 
 use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
 
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
-use tray_icon::{Icon, TrayIconBuilder};
+use settings::{Settings, MARGINS};
+use tray_icon::{Icon, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use windows_sys::w;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -26,7 +29,7 @@ struct App {
     overlay: HWND,
     roblox: HWND,
     log: log::Log,
-    shown: Option<(String, i32, i32, u32)>,
+    shown: Option<(String, [i32; 4], u32, Settings)>,
 }
 
 impl App {
@@ -45,9 +48,10 @@ impl App {
         }
         let Some((ip, port)) = &self.log.server else { return self.hide() };
         let (region, km) = geo::get(ip);
+        let settings = popup::settings();
         let mut text = format!("Server    {ip}:{port}\nRegion    {region}");
         // IP geolocation is city-level, so closer than that is noise
-        match km {
+        match km.filter(|_| settings.distance) {
             Some(km) if km < 50 => text += "\nDistance  < 50 km",
             Some(km) => text += &format!("\nDistance  ~{km} km"),
             None => {}
@@ -55,11 +59,10 @@ impl App {
 
         let mut r: RECT = zeroed();
         GetClientRect(w, &mut r);
-        let mut corner = POINT { x: r.right, y: r.bottom };
-        ClientToScreen(w, &mut corner);
-        let key = (text, corner.x, corner.y, GetDpiForWindow(w));
+        MapWindowPoints(w, null_mut(), (&mut r as *mut RECT).cast(), 2);
+        let key = (text, [r.left, r.top, r.right, r.bottom], GetDpiForWindow(w), settings);
         if self.shown.as_ref() != Some(&key) {
-            render(self.overlay, &key.0, corner, key.3);
+            render(self.overlay, &key.0, key.1, key.2, key.3);
             self.shown = Some(key);
         }
         // topmost gets lost over fullscreen Roblox otherwise
@@ -74,7 +77,7 @@ impl App {
     }
 }
 
-unsafe fn render(hwnd: HWND, text: &str, corner: POINT, dpi: u32) {
+unsafe fn render(hwnd: HWND, text: &str, [l, t, r, b]: [i32; 4], dpi: u32, s: Settings) {
     let px = |v: i32| v * dpi as i32 / 96;
     let text: Vec<u16> = text.encode_utf16().collect();
     let dc = CreateCompatibleDC(null_mut());
@@ -97,14 +100,18 @@ unsafe fn render(hwnd: HWND, text: &str, corner: POINT, dpi: u32) {
     DrawTextW(dc, text.as_ptr(), text.len() as i32, &mut rc, DT_NOPREFIX);
     GdiFlush();
 
-    // GDI text leaves alpha at 0
-    for p in std::slice::from_raw_parts_mut(bits as *mut u32, (w * h) as usize) {
-        let c = *p & 0xFF;
-        *p = ((BOX_ALPHA + c * (255 - BOX_ALPHA) / 255) << 24) | (c * 0x010101);
-    }
+    if !bits.is_null() {
+        // GDI text leaves alpha at 0
+        for p in std::slice::from_raw_parts_mut(bits as *mut u32, (w * h) as usize) {
+            let c = *p & 0xFF;
+            *p = ((BOX_ALPHA + c * (255 - BOX_ALPHA) / 255) << 24) | (c * 0x010101);
+        }
 
-    let pos = POINT { x: corner.x - w - px(16), y: corner.y - h - px(16) };
-    UpdateLayeredWindow(hwnd, null_mut(), &pos, &SIZE { cx: w, cy: h }, dc, &POINT { x: 0, y: 0 }, 0, &blend(255), ULW_ALPHA);
+        let m = px(MARGINS[s.margin]);
+        let x = if s.corner & 1 == 0 { l + m } else { r - w - m };
+        let y = if s.corner & 2 == 0 { t + m } else { b - h - m };
+        UpdateLayeredWindow(hwnd, null_mut(), &POINT { x, y }, &SIZE { cx: w, cy: h }, dc, &POINT { x: 0, y: 0 }, 0, &blend(255), ULW_ALPHA);
+    }
 
     SelectObject(dc, old_bmp);
     SelectObject(dc, old_font);
@@ -140,11 +147,15 @@ fn main() {
         sound::play_startup();
         splash::show();
 
-        let menu = Menu::with_items(&[&MenuItem::new("Exit", true, None)]).unwrap();
-        MenuEvent::set_event_handler(Some(|_| PostQuitMessage(0)));
+        popup::create();
+        TrayIconEvent::set_event_handler(Some(|e| {
+            if let TrayIconEvent::Click { rect, button_state: MouseButtonState::Up, .. } = e {
+                let x = rect.position.x as i32 + rect.size.width as i32 / 2;
+                popup::show(POINT { x, y: rect.position.y as i32 });
+            }
+        }));
         let tray_px = GetSystemMetrics(SM_CXSMICON) as u32;
         let _tray = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
             .with_tooltip("rblx-spot")
             .with_icon(Icon::from_resource(1, Some((tray_px, tray_px))).unwrap()) // id 1 = icon.ico via build.rs
             .build()

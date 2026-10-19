@@ -29,7 +29,7 @@ pub fn lookup(ip: &str) {
 }
 
 fn locate(ip: &str) -> Located {
-    let info = ipinfo(&format!("{ip}/json"));
+    let info = fetch_json(&format!("https://ipinfo.io/{ip}/json"));
     let parts: Vec<&str> = ["city", "region", "country"]
         .iter()
         .filter_map(|k| info[k].as_str())
@@ -43,7 +43,7 @@ fn locate(ip: &str) -> Located {
 fn home() -> Option<(f64, f64)> {
     let mut home = HOME.lock().unwrap();
     if home.is_none() {
-        *home = coords(&ipinfo("json"));
+        *home = coords(&fetch_json("https://ipinfo.io/json"));
     }
     *home
 }
@@ -59,8 +59,8 @@ fn distance_km((lat1, lon1): (f64, f64), (lat2, lon2): (f64, f64)) -> f64 {
     12742.0 * a.sqrt().asin()
 }
 
-fn ipinfo(path: &str) -> serde_json::Value {
-    ureq::get(format!("https://ipinfo.io/{path}"))
+pub fn fetch_json(url: &str) -> serde_json::Value {
+    ureq::get(url)
         .config()
         .timeout_global(Some(Duration::from_secs(5)))
         .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).build()) // without this ureq panics: rustls feature is off
