@@ -9,7 +9,7 @@ jobs:
   check:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: rustup update stable --no-self-update
       - uses: Swatinem/rust-cache@v2
         with:
@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: rustup update stable --no-self-update
       - uses: Swatinem/rust-cache@v2
         with:
