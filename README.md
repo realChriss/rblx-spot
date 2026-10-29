@@ -10,7 +10,7 @@
 
 - 🌍 Shows the server's IP address, region and distance from you in a corner of the game
 - 👻 Click-through overlay that only appears while Roblox is the focused window
-- ⚙️ Pick the corner, margin and whether to show distance from the tray
+- ⚙️ Pick the corner, margin, text size and whether to show distance from the tray
 - 🪶 Small and quiet, lives in the system tray
 
 ## 🚀 Usage

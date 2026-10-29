@@ -13,7 +13,7 @@ mod update;
 use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
 
-use settings::{Settings, MARGINS};
+use settings::{Settings, MARGINS, SIZES};
 use tray_icon::{Icon, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use windows_sys::w;
 use windows_sys::Win32::Foundation::*;
@@ -82,7 +82,7 @@ unsafe fn render(hwnd: HWND, text: &str, [l, t, r, b]: [i32; 4], dpi: u32, s: Se
     let text: Vec<u16> = text.encode_utf16().collect();
     let dc = CreateCompatibleDC(null_mut());
     let font = CreateFontW(
-        -((10 * dpi as i32 + 36) / 72), 0, 0, 0, FW_NORMAL as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
+        -((SIZES[s.size] * dpi as i32 + 36) / 72), 0, 0, 0, FW_NORMAL as i32, 0, 0, 0, DEFAULT_CHARSET as u32,
         OUT_DEFAULT_PRECIS as u32, CLIP_DEFAULT_PRECIS as u32, ANTIALIASED_QUALITY as u32, 0, w!("Consolas"),
     );
     let old_font = SelectObject(dc, font);

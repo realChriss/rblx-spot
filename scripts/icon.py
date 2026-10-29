@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from PIL import Image, ImageDraw
+
+ROOT = Path(__file__).resolve().parent.parent
 
 S = 2048
 INK, PAPER = "#1E2229", "#F4F5F7"
@@ -24,5 +28,5 @@ im = square
 
 sizes = [16, 20, 24, 32, 40, 48, 64, 256]
 frames = [im.resize((s, s), Image.LANCZOS) for s in sizes]
-frames[-1].save("icon.ico", sizes=[(s, s) for s in sizes], append_images=frames)
-frames[-1].save("icon.png")
+frames[-1].save(ROOT / "icon.ico", sizes=[(s, s) for s in sizes], append_images=frames)
+frames[-1].save(ROOT / "icon.png")

@@ -16,18 +16,19 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::dib_info;
 use crate::splash::icon_pixels;
-use crate::settings::{Settings, MARGINS};
+use crate::settings::{Settings, MARGINS, SIZES};
 use crate::update::{self, Status};
 
 const WM_MOUSELEAVE: u32 = 0x02A3;
 const W: f32 = 256.0;
-const H: f32 = 413.0;
+const H: f32 = 483.0;
 const P: f32 = 16.0;
 const PREVIEW: R = R { x: P, y: 70.0, w: W - 2.0 * P, h: 126.0 };
 const SEGMENTS: R = R { x: P, y: 234.0, w: W - 2.0 * P, h: 32.0 };
-const DISTANCE: R = R { x: 6.0, y: 280.0, w: W - 12.0, h: 36.0 };
-const UPDATE: R = R { x: 6.0, y: 333.0, w: W - 12.0, h: 36.0 };
-const EXIT: R = R { x: 6.0, y: 369.0, w: W - 12.0, h: 36.0 };
+const SIZE_SEGMENTS: R = R { y: 304.0, ..SEGMENTS };
+const DISTANCE: R = R { x: 6.0, y: 350.0, w: W - 12.0, h: 36.0 };
+const UPDATE: R = R { x: 6.0, y: 403.0, w: W - 12.0, h: 36.0 };
+const EXIT: R = R { x: 6.0, y: 439.0, w: W - 12.0, h: 36.0 };
 
 thread_local! {
     static POPUP: Cell<HWND> = const { Cell::new(null_mut()) };
@@ -44,6 +45,7 @@ pub fn settings() -> Settings {
 enum Hit {
     Corner(usize),
     Margin(usize),
+    Size(usize),
     Distance,
     Update,
     Exit,
@@ -81,14 +83,15 @@ fn corner_box(i: usize) -> R {
     R { x, y, w, h }
 }
 
-fn segment(i: usize) -> R {
-    SEGMENTS.cell(i, 0, MARGINS.len(), 1)
+fn segment(row: R, i: usize) -> R {
+    row.cell(i, 0, 5, 1)
 }
 
 fn hits() -> impl Iterator<Item = (Hit, R)> {
     let corners = (0..4).map(|i| (Hit::Corner(i), PREVIEW.cell(i & 1, i >> 1, 2, 2)));
-    let margins = (0..MARGINS.len()).map(|i| (Hit::Margin(i), segment(i)));
-    corners.chain(margins).chain([(Hit::Distance, DISTANCE), (Hit::Update, UPDATE), (Hit::Exit, EXIT)])
+    let margins = (0..MARGINS.len()).map(|i| (Hit::Margin(i), segment(SEGMENTS, i)));
+    let sizes = (0..SIZES.len()).map(|i| (Hit::Size(i), segment(SIZE_SEGMENTS, i)));
+    corners.chain(margins).chain(sizes).chain([(Hit::Distance, DISTANCE), (Hit::Update, UPDATE), (Hit::Exit, EXIT)])
 }
 
 struct Theme {
@@ -211,13 +214,15 @@ fn shapes(mut c: Canvas, t: &Theme, cfg: Settings) {
         let color = if i == cfg.corner { t.accent } else if hover == Some(Hit::Corner(i)) { t.subtle } else { t.stroke };
         c.fill(corner_box(i), 4.0, color);
     }
-    c.fill(SEGMENTS, 6.0, t.surface);
-    for i in 0..MARGINS.len() {
-        let seg = segment(i).inset(3.0);
-        if i == cfg.margin {
-            c.fill(seg, 4.0, t.accent);
-        } else if hover == Some(Hit::Margin(i)) {
-            c.fill(seg, 4.0, t.hover);
+    for (row, selected, hit) in [(SEGMENTS, cfg.margin, Hit::Margin as fn(usize) -> Hit), (SIZE_SEGMENTS, cfg.size, Hit::Size)] {
+        c.fill(row, 6.0, t.surface);
+        for i in 0..5 {
+            let seg = segment(row, i).inset(3.0);
+            if i == selected {
+                c.fill(seg, 4.0, t.accent);
+            } else if hover == Some(hit(i)) {
+                c.fill(seg, 4.0, t.hover);
+            }
         }
     }
     for (hit, row) in [(Hit::Distance, DISTANCE), (Hit::Update, UPDATE), (Hit::Exit, EXIT)] {
@@ -234,7 +239,7 @@ fn shapes(mut c: Canvas, t: &Theme, cfg: Settings) {
         c.fill(toggle.inset(1.0), 9.0, if hover == Some(Hit::Distance) { t.hover } else { t.bg });
         c.fill(R { x: toggle.x + 5.0, y: toggle.y + 5.0, w: 10.0, h: 10.0 }, 5.0, t.subtle);
     }
-    c.fill(R { x: P, y: 324.0, w: W - 2.0 * P, h: 1.0 }, 0.0, t.stroke);
+    c.fill(R { x: P, y: 394.0, w: W - 2.0 * P, h: 1.0 }, 0.0, t.stroke);
     c.image(P, 14.0, 20.0, |n| unsafe { icon_pixels(n) });
 }
 
@@ -249,10 +254,13 @@ unsafe fn labels(dc: HDC, s: f32, t: &Theme, cfg: Settings) {
     text(dc, s, line(12.0, 24.0), concat!("v", env!("CARGO_PKG_VERSION")), t.subtle, DT_RIGHT);
     text(dc, s, line(44.0, 20.0), "Position", t.subtle, DT_LEFT);
     text(dc, s, line(208.0, 20.0), "Margin (px)", t.subtle, DT_LEFT);
+    text(dc, s, line(278.0, 20.0), "Text size (pt)", t.subtle, DT_LEFT);
     SelectObject(dc, fonts[2]);
-    for (i, m) in MARGINS.iter().enumerate() {
-        let color = if i == cfg.margin { t.on_accent } else { t.text };
-        text(dc, s, segment(i), &m.to_string(), color, DT_CENTER);
+    for (row, values, selected) in [(SEGMENTS, MARGINS, cfg.margin), (SIZE_SEGMENTS, SIZES, cfg.size)] {
+        for (i, v) in values.iter().enumerate() {
+            let color = if i == selected { t.on_accent } else { t.text };
+            text(dc, s, segment(row, i), &v.to_string(), color, DT_CENTER);
+        }
     }
     text(dc, s, line(DISTANCE.y, DISTANCE.h), "Show distance", t.text, DT_LEFT);
     let (label, status, color) = match update::status() {
@@ -307,6 +315,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             match hit_at(hwnd, lp) {
                 Some(Hit::Corner(i)) => cfg.corner = i,
                 Some(Hit::Margin(i)) => cfg.margin = i,
+                Some(Hit::Size(i)) => cfg.size = i,
                 Some(Hit::Distance) => cfg.distance = !cfg.distance,
                 Some(Hit::Update) if matches!(update::status(), Status::Available(_)) => update::open_releases(),
                 Some(Hit::Update) => {
