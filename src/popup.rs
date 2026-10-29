@@ -14,7 +14,7 @@ use windows_sys::Win32::UI::HiDpi::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::dib_info;
+use crate::overlay::dib_info;
 use crate::splash::icon_pixels;
 use crate::settings::{Settings, MARGINS, SIZES};
 use crate::update::{self, Status};

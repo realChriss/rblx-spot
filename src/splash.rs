@@ -9,7 +9,7 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::GetDpiForSystem;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::{blend, dib_info};
+use crate::overlay::{blend, dib_info};
 
 const SIZE_DIP: f32 = 160.0;
 const TOTAL: f32 = 1.3;
