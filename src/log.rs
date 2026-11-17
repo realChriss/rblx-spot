@@ -32,7 +32,7 @@ impl Log {
                 let n = e.file_name().to_string_lossy().into_owned();
                 n.contains("_Player_") && n.ends_with("_last.log") && !n.contains("CrashHandler")
             });
-            Some(logs.max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?.path())
+            Some(logs.max_by_key(|e| fs::metadata(e.path()).and_then(|m| m.modified()).ok())?.path())
         })();
         *self = Log { path: newest, ..Default::default() };
     }
